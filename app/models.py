@@ -40,6 +40,16 @@ class User(BaseModel):
         json_encoders = {ObjectId: str}
 
 
+class BanUser(BaseModel):
+    user: str
+    period: str
+
+
+class LimitResearches(BaseModel):
+    user: str
+    limit: int
+
+
 class UserAuthTransfer(BaseModel):
     username: str
     user_id: str

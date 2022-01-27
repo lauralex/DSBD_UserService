@@ -2,7 +2,6 @@ import asyncio
 import datetime
 import logging
 import threading
-import uuid
 from abc import abstractmethod, ABC
 
 from confluent_kafka import DeserializingConsumer
@@ -13,10 +12,11 @@ from fastapi.encoders import jsonable_encoder
 import app.db_utils.mongo_utils as database
 import app.kafka.producers as producers
 from app.models import UserAuthTransfer, User, UserAuthTransferReply
+import app.settings as config
 
 
 class GenericConsumer(ABC):
-    bootstrap_servers = 'broker:29092'
+    bootstrap_servers = config.broker_settings.broker
 
     @property
     @abstractmethod
@@ -96,7 +96,7 @@ class UserAuthConsumer(GenericConsumer):
 
     @property
     def topic(self):
-        return 'user_auth'
+        return 'user-auth'
 
     @property
     def schema(self):
