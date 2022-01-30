@@ -11,6 +11,7 @@ from fastapi.encoders import jsonable_encoder
 
 import app.db_utils.mongo_utils as database
 import app.kafka.producers as producers
+from app.db_utils.advanced_scheduler import async_repeat_deco
 from app.models import UserAuthTransfer, User, UserAuthTransferReply
 import app.settings as config
 
@@ -84,7 +85,7 @@ class GenericConsumer(ABC):
 class UserAuthConsumer(GenericConsumer):
     @property
     def group_id(self):
-        return 'my_group'
+        return 'my_group_user'
 
     @property
     def auto_offset_reset(self):
@@ -183,10 +184,13 @@ user_auth_consumer: UserAuthConsumer
 
 
 def init_consumers():
-    global user_auth_consumer
+    @async_repeat_deco(3, 3, always_reschedule=True, store='alternative')
+    async def init_user_auth_consumer(_):
+        global user_auth_consumer
+        user_auth_consumer = UserAuthConsumer(asyncio.get_running_loop())
+        user_auth_consumer.consume_data()
 
-    user_auth_consumer = UserAuthConsumer(asyncio.get_running_loop())
-    user_auth_consumer.consume_data()
+    asyncio.run_coroutine_threadsafe(init_user_auth_consumer('user_auth_consumer'), loop=asyncio.get_running_loop())
 
 
 def close_consumers():
