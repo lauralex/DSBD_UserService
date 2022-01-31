@@ -7,12 +7,14 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.json_schema import JSONSerializer
 from confluent_kafka.serialization import StringSerializer
 
+from app.db_utils.advanced_scheduler import async_repeat_deco
 from app.models import UserAuthTransfer
+import app.settings as config
 
 
 class GenericProducer(ABC):
-    bootstrap_servers = 'broker:29092'
-    schema_registry_conf = {'url': 'http://schema-registry:8081'}
+    bootstrap_servers = config.broker_settings.broker
+    schema_registry_conf = {'url': config.broker_settings.schema_registry}
 
     # bootstrap_servers = 'localhost:9092'
     # schema_registry_conf = {'url': 'http://localhost:8081'}
@@ -62,7 +64,7 @@ class GenericProducer(ABC):
 
 
 class UserAuthProducer(GenericProducer):
-    topic = 'user_auth_reply'
+    topic = 'user-auth-reply'
 
     def model_to_dict(self, obj: UserAuthTransfer, ctx):
         if obj is None:
@@ -114,9 +116,13 @@ user_auth_producer: UserAuthProducer
 
 
 def init_producers(client=None):
-    global user_auth_producer
-    user_auth_producer = UserAuthProducer(asyncio.get_running_loop(), client)
-    user_auth_producer.produce_data()
+    @async_repeat_deco(3, 3, always_reschedule=True, store='alternative')
+    async def init_user_auth_producer(_):
+        global user_auth_producer
+        user_auth_producer = UserAuthProducer(asyncio.get_running_loop(), client)
+        user_auth_producer.produce_data()
+
+    asyncio.run_coroutine_threadsafe(init_user_auth_producer('user_auth_producer'), loop=asyncio.get_running_loop())
 
 
 def close_producers():

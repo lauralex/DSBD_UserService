@@ -1,19 +1,22 @@
 import datetime
 import functools
+import logging
 
 import pytz
+from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.jobstores.mongodb import MongoDBJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import app.settings as config
 
 job_stores = {
-    'default': MongoDBJobStore(config.settings.db_database,
-                               host=f'mongodb://{config.settings.db_username}:{config.settings.db_password}@'
-                                    f'{config.settings.db_host}/')
+    'default': MongoDBJobStore(config.db_settings.db_database,
+                               host=config.db_settings.db_host),
+    'alternative': MemoryJobStore()
 }
 
 transaction_scheduler: AsyncIOScheduler
+
 
 def init_scheduler():
     global transaction_scheduler
@@ -25,7 +28,45 @@ def init_scheduler():
         job.resume()
 
 
-def repeat_deco(repeat_count, reschedule_count=0, inter_repeat_time=5, always_reschedule=False):
+def async_repeat_deco(repeat_count, reschedule_count=0, inter_repeat_time=5, always_reschedule=False, store='default'):
+    def deco_wrapper(func):
+        # this notation is copying the information (name, docstring, ecc.) of the original function to the
+        # function wrapper
+        @functools.wraps(func)
+        async def func_wrapper(trans_id=None, *args, **kwargs):  # Here, we added the default parameter 'trans_id'
+            counter = 0
+            while counter < repeat_count:
+                try:
+                    # If the 'trans_id' is valid, we forward the parameter to the wrapped function 'func'
+                    if trans_id is not None:
+                        return await func(trans_id, *args, **kwargs)
+                    else:
+                        # Otherwise, we call the wrapped function 'func' with the passed arguments (positional and
+                        # keywords)
+                        return await func(*args, **kwargs)
+                except:
+                    logging.exception('')
+                    counter += 1
+            if func_wrapper.reschedule_count > 0 and trans_id is not None:
+                if not always_reschedule:
+                    func_wrapper.reschedule_count -= 1
+                transaction_scheduler.add_job(func_wrapper,
+                                              id=str(trans_id),
+                                              run_date=datetime.datetime.now(pytz.utc) + datetime.timedelta(
+                                                  seconds=inter_repeat_time),
+                                              args=[trans_id, *args], kwargs=kwargs, replace_existing=True,
+                                              misfire_grace_time=None,
+                                              jobstore=store)
+
+            raise Exception(f'Failed execution in function: {func.__name__!r}')
+
+        func_wrapper.reschedule_count = reschedule_count
+        return func_wrapper
+
+    return deco_wrapper
+
+
+def repeat_deco(repeat_count, reschedule_count=0, inter_repeat_time=5, always_reschedule=False, store='default'):
     def deco_wrapper(func):
         # this notation is copying the information (name, docstring, ecc.) of the original function to the
         # function wrapper
@@ -51,7 +92,8 @@ def repeat_deco(repeat_count, reschedule_count=0, inter_repeat_time=5, always_re
                                               run_date=datetime.datetime.now(pytz.utc) + datetime.timedelta(
                                                   seconds=inter_repeat_time),
                                               args=[trans_id, *args], kwargs=kwargs, replace_existing=True,
-                                              misfire_grace_time=None)
+                                              misfire_grace_time=None,
+                                              jobstore=store)
 
             raise Exception(f'Failed execution in function: {func.__name__!r}')
 
