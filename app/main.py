@@ -57,11 +57,11 @@ async def users():
 async def limit_user(username: str, limit: int):
     await database.mongo.db[User.collection_name].update_one({'username': username}, {
         '$set': {
-            'max_research': limit
+            'max_research': limit if limit != 0 else None
         }
     })
     if (updated_user := await database.mongo.db[User.collection_name].find_one({'username': username})) is not None:
-        return updated_user
+        return User.parse_obj(updated_user)
     return HTTPException(status_code=404, detail='User not found')
 
 # def alca():
@@ -115,5 +115,5 @@ async def ban_user(username: str, ban_period: str):
     })
 
     if (updated_user := await database.mongo.db[User.collection_name].find_one({'username': username})) is not None:
-        return updated_user
+        return User.parse_obj(updated_user)
     return HTTPException(status_code=404, detail='User not found')
